@@ -16,17 +16,16 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"reflect"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	libio "github.com/fatedier/golib/io"
 	libnet "github.com/fatedier/golib/net"
-	pp "github.com/pires/go-proxyproto"
 	"golang.org/x/time/rate"
 
 	"github.com/fatedier/frp/pkg/config/types"
@@ -35,6 +34,7 @@ import (
 	plugin "github.com/fatedier/frp/pkg/plugin/client"
 	"github.com/fatedier/frp/pkg/transport"
 	"github.com/fatedier/frp/pkg/util/limit"
+	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/xlog"
 	"github.com/fatedier/frp/pkg/vnet"
 )
@@ -58,6 +58,7 @@ func NewProxy(
 	ctx context.Context,
 	pxyConf v1.ProxyConfigurer,
 	clientCfg *v1.ClientCommonConfig,
+	encryptionKey []byte,
 	msgTransporter transport.MessageTransporter,
 	vnetController *vnet.Controller,
 ) (pxy Proxy) {
@@ -70,6 +71,7 @@ func NewProxy(
 	baseProxy := BaseProxy{
 		baseCfg:        pxyConf.GetBaseConfig(),
 		clientCfg:      clientCfg,
+		encryptionKey:  encryptionKey,
 		limiter:        limiter,
 		msgTransporter: msgTransporter,
 		vnetController: vnetController,
@@ -87,6 +89,7 @@ func NewProxy(
 type BaseProxy struct {
 	baseCfg        *v1.ProxyBaseConfig
 	clientCfg      *v1.ClientCommonConfig
+	encryptionKey  []byte
 	msgTransporter transport.MessageTransporter
 	vnetController *vnet.Controller
 	limiter        *rate.Limiter
@@ -120,6 +123,33 @@ func (pxy *BaseProxy) Close() {
 	}
 }
 
+// wrapWorkConn applies rate limiting, encryption, and compression
+// to a work connection based on the proxy's transport configuration.
+// The returned recycle function should be called when the stream is no longer in use
+// to return compression resources to the pool. It is safe to not call recycle,
+// in which case resources will be garbage collected normally.
+func (pxy *BaseProxy) wrapWorkConn(conn net.Conn, encKey []byte) (io.ReadWriteCloser, func(), error) {
+	var rwc io.ReadWriteCloser = conn
+	if pxy.limiter != nil {
+		rwc = libio.WrapReadWriteCloser(limit.NewReader(conn, pxy.limiter), limit.NewWriter(conn, pxy.limiter), func() error {
+			return conn.Close()
+		})
+	}
+	if pxy.baseCfg.Transport.UseEncryption {
+		var err error
+		rwc, err = libio.WithEncryption(rwc, encKey)
+		if err != nil {
+			conn.Close()
+			return nil, nil, fmt.Errorf("create encryption stream error: %w", err)
+		}
+	}
+	var recycleFn func()
+	if pxy.baseCfg.Transport.UseCompression {
+		rwc, recycleFn = libio.WithCompressionFromPool(rwc)
+	}
+	return rwc, recycleFn, nil
+}
+
 func (pxy *BaseProxy) SetInWorkConnCallback(cb func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool) {
 	pxy.inWorkConnCallback = cb
 }
@@ -130,37 +160,21 @@ func (pxy *BaseProxy) InWorkConn(conn net.Conn, m *msg.StartWorkConn) {
 			return
 		}
 	}
-	pxy.HandleTCPWorkConnection(conn, m, []byte(pxy.clientCfg.Auth.Token))
+	pxy.HandleTCPWorkConnection(conn, m, pxy.encryptionKey)
 }
 
 // Common handler for tcp work connections.
 func (pxy *BaseProxy) HandleTCPWorkConnection(workConn net.Conn, m *msg.StartWorkConn, encKey []byte) {
 	xl := pxy.xl
 	baseCfg := pxy.baseCfg
-	var (
-		remote io.ReadWriteCloser
-		err    error
-	)
-	remote = workConn
-	if pxy.limiter != nil {
-		remote = libio.WrapReadWriteCloser(limit.NewReader(workConn, pxy.limiter), limit.NewWriter(workConn, pxy.limiter), func() error {
-			return workConn.Close()
-		})
-	}
 
 	xl.Tracef("handle tcp work connection, useEncryption: %t, useCompression: %t",
 		baseCfg.Transport.UseEncryption, baseCfg.Transport.UseCompression)
-	if baseCfg.Transport.UseEncryption {
-		remote, err = libio.WithEncryption(remote, encKey)
-		if err != nil {
-			workConn.Close()
-			xl.Errorf("create encryption stream error: %v", err)
-			return
-		}
-	}
-	var compressionResourceRecycleFn func()
-	if baseCfg.Transport.UseCompression {
-		remote, compressionResourceRecycleFn = libio.WithCompressionFromPool(remote)
+
+	remote, recycleFn, err := pxy.wrapWorkConn(workConn, encKey)
+	if err != nil {
+		xl.Errorf("wrap work connection: %v", err)
+		return
 	}
 
 	// check if we need to send proxy protocol info
@@ -176,34 +190,24 @@ func (pxy *BaseProxy) HandleTCPWorkConnection(workConn net.Conn, m *msg.StartWor
 	}
 
 	if baseCfg.Transport.ProxyProtocolVersion != "" && m.SrcAddr != "" && m.SrcPort != 0 {
-		h := &pp.Header{
-			Command:         pp.PROXY,
-			SourceAddr:      connInfo.SrcAddr,
-			DestinationAddr: connInfo.DstAddr,
-		}
-
-		if strings.Contains(m.SrcAddr, ".") {
-			h.TransportProtocol = pp.TCPv4
-		} else {
-			h.TransportProtocol = pp.TCPv6
-		}
-
-		if baseCfg.Transport.ProxyProtocolVersion == "v1" {
-			h.Version = 1
-		} else if baseCfg.Transport.ProxyProtocolVersion == "v2" {
-			h.Version = 2
-		}
-		connInfo.ProxyProtocolHeader = h
+		header := netpkg.BuildProxyProtocolHeaderStruct(connInfo.SrcAddr, connInfo.DstAddr, baseCfg.Transport.ProxyProtocolVersion)
+		connInfo.ProxyProtocolHeader = header
 	}
 	connInfo.Conn = remote
 	connInfo.UnderlyingConn = workConn
 
 	if pxy.proxyPlugin != nil {
 		// if plugin is set, let plugin handle connection first
+		// Don't recycle compression resources here because plugins may
+		// retain the connection after Handle returns.
 		xl.Debugf("handle by plugin: %s", pxy.proxyPlugin.Name())
 		pxy.proxyPlugin.Handle(pxy.ctx, &connInfo)
 		xl.Debugf("handle by plugin finished")
 		return
+	}
+
+	if recycleFn != nil {
+		defer recycleFn()
 	}
 
 	localConn, err := libnet.Dial(
@@ -222,6 +226,7 @@ func (pxy *BaseProxy) HandleTCPWorkConnection(workConn net.Conn, m *msg.StartWor
 	if connInfo.ProxyProtocolHeader != nil {
 		if _, err := connInfo.ProxyProtocolHeader.WriteTo(localConn); err != nil {
 			workConn.Close()
+			localConn.Close()
 			xl.Errorf("write proxy protocol header to local conn error: %v", err)
 			return
 		}
@@ -231,8 +236,5 @@ func (pxy *BaseProxy) HandleTCPWorkConnection(workConn net.Conn, m *msg.StartWor
 	xl.Debugf("join connections closed")
 	if len(errs) > 0 {
 		xl.Tracef("join connections errors: %v", errs)
-	}
-	if compressionResourceRecycleFn != nil {
-		compressionResourceRecycleFn()
 	}
 }

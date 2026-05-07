@@ -17,7 +17,6 @@ package client
 import (
 	"context"
 	"crypto/tls"
-	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -30,6 +29,8 @@ import (
 	"github.com/samber/lo"
 
 	v1 "github.com/fatedier/frp/pkg/config/v1"
+	"github.com/fatedier/frp/pkg/msg"
+	"github.com/fatedier/frp/pkg/proto/wire"
 	"github.com/fatedier/frp/pkg/transport"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/xlog"
@@ -42,13 +43,46 @@ type Connector interface {
 	Close() error
 }
 
+type MessageConnector interface {
+	Connect() (*msg.Conn, error)
+	Close() error
+}
+
+type messageConnector struct {
+	connector    Connector
+	wireProtocol string
+}
+
+func newMessageConnector(connector Connector, wireProtocol string) *messageConnector {
+	return &messageConnector{
+		connector:    connector,
+		wireProtocol: wireProtocol,
+	}
+}
+
+func (c *messageConnector) Connect() (*msg.Conn, error) {
+	conn, err := c.connector.Connect()
+	if err != nil {
+		return nil, err
+	}
+	if err = wire.WriteMagicIfV2(conn, c.wireProtocol); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return msg.NewConn(conn, msg.NewReadWriter(conn, c.wireProtocol)), nil
+}
+
+func (c *messageConnector) Close() error {
+	return c.connector.Close()
+}
+
 // defaultConnectorImpl is the default implementation of Connector for normal frpc.
 type defaultConnectorImpl struct {
 	ctx context.Context
 	cfg *v1.ClientCommonConfig
 
 	muxSession *fmux.Session
-	quicConn   quic.Connection
+	quicConn   *quic.Conn
 	closeOnce  sync.Once
 }
 
@@ -115,10 +149,12 @@ func (c *defaultConnectorImpl) Open() error {
 
 	fmuxCfg := fmux.DefaultConfig()
 	fmuxCfg.KeepAliveInterval = time.Duration(c.cfg.Transport.TCPMuxKeepaliveInterval) * time.Second
-	fmuxCfg.LogOutput = io.Discard
+	// Use trace level for yamux logs
+	fmuxCfg.LogOutput = xlog.NewTraceWriter(xl)
 	fmuxCfg.MaxStreamWindowSize = 6 * 1024 * 1024
 	session, err := fmux.Client(conn, fmuxCfg)
 	if err != nil {
+		conn.Close()
 		return err
 	}
 	c.muxSession = session

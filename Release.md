@@ -1,8 +1,21 @@
-### Notes
+## Compatibility Policy
 
-*   **Feature Gates Introduced:** This version introduces a new experimental mechanism called Feature Gates. This allows users to enable or disable specific experimental features before they become generally available. Feature gates can be configured in the `featureGates` map within the configuration file.
-*   **VirtualNet Feature Gate:** The first available feature gate is `VirtualNet`, which enables the experimental Virtual Network functionality (currently in Alpha stage).
+Starting with v0.69.0, each minor release is supported until there are nine newer minor releases. For example, v0.69.0 will be supported until v0.78.0 is released. Within this window, frpc v0.69.0 is guaranteed to work with any frps from v0.61.0 to v0.77.0, and vice versa. Patch releases within the same minor are always compatible. Versions outside the support window may continue to work on a best-effort basis, but compatibility is no longer guaranteed.
 
-### Features
+For mixed-version deployments, upgrade frps first, then upgrade frpc. This keeps the server side ready for newer client-side protocol behavior before clients start using it.
 
-*   **Virtual Network (VirtualNet):** Introduce experimental virtual network capabilities (Alpha). This allows creating a TUN device managed by frp, enabling Layer 3 connectivity between different clients within the frp network. Requires root/admin privileges and is currently supported on Linux and macOS. Configuration is done via the `virtualNet` section and the `virtual_net` plugin. Enable with feature gate `VirtualNet`. **Note: As an Alpha feature, configuration details may change in future releases.**
+## Notes
+
+This release introduces wire protocol v2 as a transition path for future frpc/frps protocol changes. The existing wire protocol is difficult to extend without compatibility risk, and upcoming changes, including replacing deprecated stream encryption methods, require a versioned protocol.
+
+**The default value of `transport.wireProtocol` remains `v1` in this release.** Users can keep the default for now. To test v2 early, upgrade both frpc and frps to versions that support it, then set `transport.wireProtocol = "v2"` in frpc. A v2-enabled frpc cannot connect to an older frps.
+
+When `transport.wireProtocol = "v2"` is enabled, the control channel uses negotiated AEAD encryption after the login handshake. Both frpc and frps must be upgraded to this release to use v2.
+
+v1 will be deprecated when v2 becomes the default in a future release. It will continue to be supported until v0.78.0 is released, and may be removed in v0.78.0 or later.
+
+## Features
+
+* Added `transport.wireProtocol` for frpc to select the internal message protocol used between frpc and frps. Supported values are `v1` and `v2`.
+* Added client protocol visibility in the frps dashboard and `/api/clients` API. Online clients now report their negotiated protocol as `v1` or `v2`.
+* Wire protocol v2 now negotiates AEAD control-channel encryption. Supported algorithms are `xchacha20-poly1305` and `aes-256-gcm`; frpc advertises its preferred order based on local AES-GCM hardware support, and frps selects the first supported algorithm from that list.

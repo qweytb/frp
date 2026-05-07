@@ -68,6 +68,13 @@ var (
 	DetectRoleReceiver = "receiver"
 )
 
+// PrepareOptions defines options for NAT traversal preparation
+type PrepareOptions struct {
+	// DisableAssistedAddrs disables the use of local network interfaces
+	// for assisted connections during NAT traversal
+	DisableAssistedAddrs bool
+}
+
 type PrepareResult struct {
 	Addrs         []string
 	AssistedAddrs []string
@@ -108,7 +115,7 @@ func PreCheck(
 }
 
 // Prepare is used to do some preparation work before penetration.
-func Prepare(stunServers []string) (*PrepareResult, error) {
+func Prepare(stunServers []string, opts PrepareOptions) (*PrepareResult, error) {
 	// discover for Nat type
 	addrs, localAddr, err := Discover(stunServers, "")
 	if err != nil {
@@ -133,9 +140,13 @@ func Prepare(stunServers []string) (*PrepareResult, error) {
 		return nil, fmt.Errorf("listen local udp addr error: %v", err)
 	}
 
-	assistedAddrs := make([]string, 0, len(localIPs))
-	for _, ip := range localIPs {
-		assistedAddrs = append(assistedAddrs, net.JoinHostPort(ip, strconv.Itoa(laddr.Port)))
+	// Apply NAT traversal options
+	var assistedAddrs []string
+	if !opts.DisableAssistedAddrs {
+		assistedAddrs = make([]string, 0, len(localIPs))
+		for _, ip := range localIPs {
+			assistedAddrs = append(assistedAddrs, net.JoinHostPort(ip, strconv.Itoa(laddr.Port)))
+		}
 	}
 	return &PrepareResult{
 		Addrs:         addrs,
@@ -287,11 +298,13 @@ func waitDetectMessage(
 		n, raddr, err := conn.ReadFromUDP(buf)
 		_ = conn.SetReadDeadline(time.Time{})
 		if err != nil {
+			pool.PutBuf(buf)
 			return nil, err
 		}
 		xl.Debugf("get udp message local %s, from %s", conn.LocalAddr(), raddr)
 		var m msg.NatHoleSid
 		if err := DecodeMessageInto(buf[:n], key, &m); err != nil {
+			pool.PutBuf(buf)
 			xl.Warnf("decode sid message error: %v", err)
 			continue
 		}
@@ -397,7 +410,7 @@ func sendSidMessageToRandomPorts(
 	xl := xlog.FromContextSafe(ctx)
 	used := sets.New[int]()
 	getUnusedPort := func() int {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			port := rand.IntN(65535-1024) + 1024
 			if !used.Has(port) {
 				used.Insert(port)
@@ -407,7 +420,7 @@ func sendSidMessageToRandomPorts(
 		return 0
 	}
 
-	for i := 0; i < count; i++ {
+	for range count {
 		select {
 		case <-ctx.Done():
 			return

@@ -16,18 +16,30 @@ frp is an open source project with its ongoing development made possible entirel
 <p align="center">
   <a href="https://jb.gg/frp" target="_blank">
     <img width="420px" src="https://raw.githubusercontent.com/fatedier/frp/dev/doc/pic/sponsor_jetbrains.jpg">
+	<br>
+	<b>The complete IDE crafted for professional Go developers</b>
   </a>
 </p>
-<p align="center">
-  <a href="https://github.com/daytonaio/daytona" target="_blank">
-    <img width="420px" src="https://raw.githubusercontent.com/fatedier/frp/dev/doc/pic/sponsor_daytona.png">
-  </a>
-</p>
+
 <p align="center">
   <a href="https://github.com/beclab/Olares" target="_blank">
     <img width="420px" src="https://raw.githubusercontent.com/fatedier/frp/dev/doc/pic/sponsor_olares.jpeg">
+	<br>
+	<b>The sovereign cloud that puts you in control</b>
+	<br>
+	<sub>An open source, self-hosted alternative to public clouds, built for data ownership and privacy</sub>
   </a>
 </p>
+
+<div align="center">
+
+## Recall.ai - API for meeting recordings
+
+If you're looking for a meeting recording API, consider checking out [Recall.ai](https://www.recall.ai/?utm_source=github&utm_medium=sponsorship&utm_campaign=fatedier-frp),
+
+an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
+
+</div>
 <!--gold sponsors end-->
 
 ## What is frp?
@@ -59,6 +71,7 @@ frp also offers a P2P connect mode.
     * [Split Configures Into Different Files](#split-configures-into-different-files)
     * [Server Dashboard](#server-dashboard)
     * [Client Admin UI](#client-admin-ui)
+        * [Dynamic Proxy Management (Store)](#dynamic-proxy-management-store)
     * [Monitor](#monitor)
         * [Prometheus](#prometheus)
     * [Authenticating the Client](#authenticating-the-client)
@@ -127,7 +140,9 @@ We sincerely appreciate your support for frp.
 
 ## Architecture
 
-![architecture](/doc/pic/architecture.png)
+<p align="center">
+  <img src="/doc/pic/architecture.jpg" alt="architecture" width="760">
+</p>
 
 ## Example Usage
 
@@ -502,7 +517,7 @@ name = "ssh"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 22
-remotePort = "{{ .Envs.FRP_SSH_REMOTE_PORT }}"
+remotePort = {{ .Envs.FRP_SSH_REMOTE_PORT }}
 ```
 
 With the config above, variables can be passed into `frpc` program like this:
@@ -571,7 +586,7 @@ Then visit `https://[serverAddr]:7500` to see the dashboard in secure HTTPS conn
 
 ### Client Admin UI
 
-The Client Admin UI helps you check and manage frpc's configuration.
+The Client Admin UI helps you check and manage frpc's configuration and proxies.
 
 Configure an address for admin UI to enable this feature:
 
@@ -583,6 +598,19 @@ webServer.password = "admin"
 ```
 
 Then visit `http://127.0.0.1:7400` to see admin UI, with username and password both being `admin`.
+
+#### Dynamic Proxy Management (Store)
+
+You can dynamically create, update, and delete proxies and visitors at runtime through the Web UI or API, without restarting frpc.
+
+To enable this feature, configure `store.path` to specify a file for persisting the configurations:
+
+```toml
+[store]
+path = "./db.json"
+```
+
+Proxies and visitors managed through the Store are saved to disk and automatically restored on frpc restart. They work alongside proxies defined in the configuration file — Store entries take precedence when names conflict.
 
 ### Monitor
 
@@ -611,6 +639,21 @@ Configuring `auth.additionalScopes = ["NewWorkConns"]` will do the same for ever
 When specifying `auth.method = "token"` in `frpc.toml` and `frps.toml` - token based authentication will be used.
 
 Make sure to specify the same `auth.token` in `frps.toml` and `frpc.toml` for frpc to pass frps validation
+
+##### Token Source
+
+frp supports reading authentication tokens from external sources using the `tokenSource` configuration. Currently, file-based token source is supported.
+
+**File-based token source:**
+
+```toml
+# frpc.toml
+auth.method = "token"
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "/path/to/token/file"
+```
+
+The token will be read from the specified file at startup. This is useful for scenarios where tokens are managed by external systems or need to be kept separate from configuration files for security reasons.
 
 #### OIDC Authentication
 
@@ -763,6 +806,14 @@ webServer.port = 7400
 Then run command `frpc reload -c ./frpc.toml` and wait for about 10 seconds to let `frpc` create or update or remove proxies.
 
 **Note that global client parameters won't be modified except 'start'.**
+
+`start` is a global allowlist evaluated after all sources are merged (config file/include/store).
+If `start` is non-empty, any proxy or visitor not listed there will not be started, including
+entries created via Store API.
+
+`start` is kept mainly for compatibility and is generally not recommended for new configurations.
+Prefer per-proxy/per-visitor `enabled`, and keep `start` empty unless you explicitly want this
+global allowlist behavior.
 
 You can run command `frpc verify -c ./frpc.toml` before reloading to check if there are config errors.
 
@@ -1025,7 +1076,7 @@ You can get user's real IP from HTTP request headers `X-Forwarded-For`.
 
 #### Proxy Protocol
 
-frp supports Proxy Protocol to send user's real IP to local services. It support all types except UDP.
+frp supports Proxy Protocol to send user's real IP to local services.
 
 Here is an example for https service:
 

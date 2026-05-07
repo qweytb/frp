@@ -37,6 +37,8 @@ type ClientCommonConfig struct {
 	// clients. If this value is not "", proxy names will automatically be
 	// changed to "{user}.{proxy_name}".
 	User string `json:"user,omitempty"`
+	// ClientID uniquely identifies this frpc instance.
+	ClientID string `json:"clientID,omitempty"`
 
 	// ServerAddr specifies the address of the server to connect to. By
 	// default, this value is "0.0.0.0".
@@ -75,20 +77,26 @@ type ClientCommonConfig struct {
 
 	// Include other config files for proxies.
 	IncludeConfigFiles []string `json:"includes,omitempty"`
+
+	// Store config enables the built-in store source (not configurable via sources list).
+	Store StoreConfig `json:"store,omitempty"`
 }
 
-func (c *ClientCommonConfig) Complete() {
+func (c *ClientCommonConfig) Complete() error {
 	c.ServerAddr = util.EmptyOr(c.ServerAddr, "0.0.0.0")
 	c.ServerPort = util.EmptyOr(c.ServerPort, 7000)
 	c.LoginFailExit = util.EmptyOr(c.LoginFailExit, lo.ToPtr(true))
 	c.NatHoleSTUNServer = util.EmptyOr(c.NatHoleSTUNServer, "stun.easyvoip.com:3478")
 
-	c.Auth.Complete()
+	if err := c.Auth.Complete(); err != nil {
+		return err
+	}
 	c.Log.Complete()
 	c.Transport.Complete()
 	c.WebServer.Complete()
 
 	c.UDPPacketSize = util.EmptyOr(c.UDPPacketSize, 1500)
+	return nil
 }
 
 type ClientTransportConfig struct {
@@ -96,6 +104,9 @@ type ClientTransportConfig struct {
 	// Valid values are "tcp", "kcp", "quic", "websocket" and "wss". By default, this value
 	// is "tcp".
 	Protocol string `json:"protocol,omitempty"`
+	// WireProtocol specifies the frpc/frps internal wire protocol version.
+	// Valid values are "v1" and "v2". By default, this value is "v1".
+	WireProtocol string `json:"wireProtocol,omitempty"`
 	// The maximum amount of time a dial to server will wait for a connect to complete.
 	DialServerTimeout int64 `json:"dialServerTimeout,omitempty"`
 	// DialServerKeepAlive specifies the interval between keep-alive probes for an active network connection between frpc and frps.
@@ -135,6 +146,7 @@ type ClientTransportConfig struct {
 
 func (c *ClientTransportConfig) Complete() {
 	c.Protocol = util.EmptyOr(c.Protocol, "tcp")
+	c.WireProtocol = util.EmptyOr(c.WireProtocol, "v1")
 	c.DialServerTimeout = util.EmptyOr(c.DialServerTimeout, 10)
 	c.DialServerKeepAlive = util.EmptyOr(c.DialServerKeepAlive, 7200)
 	c.ProxyURL = util.EmptyOr(c.ProxyURL, os.Getenv("http_proxy"))
@@ -184,12 +196,16 @@ type AuthClientConfig struct {
 	// Token specifies the authorization token used to create keys to be sent
 	// to the server. The server must have a matching token for authorization
 	// to succeed.  By default, this value is "".
-	Token string               `json:"token,omitempty"`
-	OIDC  AuthOIDCClientConfig `json:"oidc,omitempty"`
+	Token string `json:"token,omitempty"`
+	// TokenSource specifies a dynamic source for the authorization token.
+	// This is mutually exclusive with Token field.
+	TokenSource *ValueSource         `json:"tokenSource,omitempty"`
+	OIDC        AuthOIDCClientConfig `json:"oidc,omitempty"`
 }
 
-func (c *AuthClientConfig) Complete() {
+func (c *AuthClientConfig) Complete() error {
 	c.Method = util.EmptyOr(c.Method, "token")
+	return nil
 }
 
 type AuthOIDCClientConfig struct {
@@ -208,6 +224,21 @@ type AuthOIDCClientConfig struct {
 	// AdditionalEndpointParams specifies additional parameters to be sent
 	// this field will be transfer to map[string][]string in OIDC token generator.
 	AdditionalEndpointParams map[string]string `json:"additionalEndpointParams,omitempty"`
+
+	// TrustedCaFile specifies the path to a custom CA certificate file
+	// for verifying the OIDC token endpoint's TLS certificate.
+	TrustedCaFile string `json:"trustedCaFile,omitempty"`
+	// InsecureSkipVerify disables TLS certificate verification for the
+	// OIDC token endpoint. Only use this for debugging, not recommended for production.
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+	// ProxyURL specifies a proxy to use when connecting to the OIDC token endpoint.
+	// Supports http, https, socks5, and socks5h proxy protocols.
+	// If empty, no proxy is used for OIDC connections.
+	ProxyURL string `json:"proxyURL,omitempty"`
+
+	// TokenSource specifies a custom dynamic source for the authorization token.
+	// This is mutually exclusive with every other field of this structure.
+	TokenSource *ValueSource `json:"tokenSource,omitempty"`
 }
 
 type VirtualNetConfig struct {

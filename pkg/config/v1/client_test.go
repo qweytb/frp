@@ -24,12 +24,22 @@ import (
 func TestClientConfigComplete(t *testing.T) {
 	require := require.New(t)
 	c := &ClientConfig{}
-	c.Complete()
+	err := c.Complete()
+	require.NoError(err)
 
 	require.EqualValues("token", c.Auth.Method)
 	require.Equal(true, lo.FromPtr(c.Transport.TCPMux))
+	require.Equal("v1", c.Transport.WireProtocol)
 	require.Equal(true, lo.FromPtr(c.LoginFailExit))
 	require.Equal(true, lo.FromPtr(c.Transport.TLS.Enable))
 	require.Equal(true, lo.FromPtr(c.Transport.TLS.DisableCustomTLSFirstByte))
 	require.NotEmpty(c.NatHoleSTUNServer)
+}
+
+func TestAuthClientConfig_Complete(t *testing.T) {
+	require := require.New(t)
+	cfg := &AuthClientConfig{}
+	err := cfg.Complete()
+	require.NoError(err)
+	require.EqualValues("token", cfg.Method)
 }

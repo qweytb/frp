@@ -18,18 +18,30 @@ frp 是一个完全开源的项目，我们的开发工作完全依靠赞助者�
 <p align="center">
   <a href="https://jb.gg/frp" target="_blank">
     <img width="420px" src="https://raw.githubusercontent.com/fatedier/frp/dev/doc/pic/sponsor_jetbrains.jpg">
+	<br>
+	<b>The complete IDE crafted for professional Go developers</b>
   </a>
 </p>
-<p align="center">
-  <a href="https://github.com/daytonaio/daytona" target="_blank">
-    <img width="420px" src="https://raw.githubusercontent.com/fatedier/frp/dev/doc/pic/sponsor_daytona.png">
-  </a>
-</p>
+
 <p align="center">
   <a href="https://github.com/beclab/Olares" target="_blank">
     <img width="420px" src="https://raw.githubusercontent.com/fatedier/frp/dev/doc/pic/sponsor_olares.jpeg">
+	<br>
+	<b>The sovereign cloud that puts you in control</b>
+	<br>
+	<sub>An open source, self-hosted alternative to public clouds, built for data ownership and privacy</sub>
   </a>
 </p>
+
+<div align="center">
+
+## Recall.ai - API for meeting recordings
+
+If you're looking for a meeting recording API, consider checking out [Recall.ai](https://www.recall.ai/?utm_source=github&utm_medium=sponsorship&utm_campaign=fatedier-frp),
+
+an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
+
+</div>
 <!--gold sponsors end-->
 
 ## 为什么使用 frp ？
@@ -102,9 +114,3 @@ frp 是一个免费且开源的项目，我们欢迎任何人为其开发和进�
 国内用户可以通过 [爱发电](https://afdian.com/a/fatedier) 赞助我们。
 
 企业赞助者可以将贵公司的 Logo 以及链接放置在项目 README 文件中。
-
-### 知识星球
-
-如果您想了解更多 frp 相关技术以及更新详解，或者寻求任何 frp 使用方面的帮助，都可以通过微信扫描下方的二维码付费加入知识星球的官方社群：
-
-![zsxq](/doc/pic/zsxq.jpg)

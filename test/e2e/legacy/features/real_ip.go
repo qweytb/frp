@@ -44,7 +44,7 @@ var _ = ginkgo.Describe("[Feature: Real IP]", func() {
 		custom_domains = normal.example.com
 		`, localPort)
 
-		f.RunProcesses([]string{serverConf}, []string{clientConf})
+		f.RunProcesses(serverConf, []string{clientConf})
 
 		framework.NewRequestExpect(f).Port(vhostHTTPPort).
 			RequestModify(func(r *request.Request) {
@@ -90,10 +90,10 @@ var _ = ginkgo.Describe("[Feature: Real IP]", func() {
 			proxy_protocol_version = v2
 			`, localPort, remotePort)
 
-			f.RunProcesses([]string{serverConf}, []string{clientConf})
+			f.RunProcesses(serverConf, []string{clientConf})
 
 			framework.NewRequestExpect(f).Port(remotePort).Ensure(func(resp *request.Response) bool {
-				log.Tracef("ProxyProtocol get SourceAddr: %s", string(resp.Content))
+				log.Tracef("proxy protocol get SourceAddr: %s", string(resp.Content))
 				addr, err := net.ResolveTCPAddr("tcp", string(resp.Content))
 				if err != nil {
 					return false
@@ -136,13 +136,13 @@ var _ = ginkgo.Describe("[Feature: Real IP]", func() {
 			proxy_protocol_version = v2
 			`, localPort)
 
-			f.RunProcesses([]string{serverConf}, []string{clientConf})
+			f.RunProcesses(serverConf, []string{clientConf})
 
 			framework.NewRequestExpect(f).Port(vhostHTTPPort).RequestModify(func(r *request.Request) {
 				r.HTTP().HTTPHost("normal.example.com")
 			}).Ensure(framework.ExpectResponseCode(404))
 
-			log.Tracef("ProxyProtocol get SourceAddr: %s", srcAddrRecord)
+			log.Tracef("proxy protocol get SourceAddr: %s", srcAddrRecord)
 			addr, err := net.ResolveTCPAddr("tcp", srcAddrRecord)
 			framework.ExpectNoError(err, srcAddrRecord)
 			framework.ExpectEqualValues("127.0.0.1", addr.IP.String())

@@ -15,21 +15,9 @@
 package v1
 
 import (
-	"sync"
+	"maps"
 
 	"github.com/fatedier/frp/pkg/util/util"
-)
-
-// TODO(fatedier): Due to the current implementation issue of the go json library, the UnmarshalJSON method
-// of a custom struct cannot access the DisallowUnknownFields parameter of the parent decoder.
-// Here, a global variable is temporarily used to control whether unknown fields are allowed.
-// Once the v2 version is implemented by the community, we can switch to a standardized approach.
-//
-// https://github.com/golang/go/issues/41144
-// https://github.com/golang/go/discussions/63397
-var (
-	DisallowUnknownFields   = false
-	DisallowUnknownFieldsMu sync.Mutex
 )
 
 type AuthScope string
@@ -85,15 +73,31 @@ func (c *WebServerConfig) Complete() {
 }
 
 type TLSConfig struct {
-	// CertPath specifies the path of the cert file that client will load.
+	// CertFile specifies the path of the cert file that client will load.
 	CertFile string `json:"certFile,omitempty"`
-	// KeyPath specifies the path of the secret key file that client will load.
+	// KeyFile specifies the path of the secret key file that client will load.
 	KeyFile string `json:"keyFile,omitempty"`
 	// TrustedCaFile specifies the path of the trusted ca file that will load.
 	TrustedCaFile string `json:"trustedCaFile,omitempty"`
 	// ServerName specifies the custom server name of tls certificate. By
 	// default, server name if same to ServerAddr.
 	ServerName string `json:"serverName,omitempty"`
+}
+
+// NatTraversalConfig defines configuration options for NAT traversal
+type NatTraversalConfig struct {
+	// DisableAssistedAddrs disables the use of local network interfaces
+	// for assisted connections during NAT traversal. When enabled,
+	// only STUN-discovered public addresses will be used.
+	DisableAssistedAddrs bool `json:"disableAssistedAddrs,omitempty"`
+}
+
+func (c *NatTraversalConfig) Clone() *NatTraversalConfig {
+	if c == nil {
+		return nil
+	}
+	out := *c
+	return &out
 }
 
 type LogConfig struct {
@@ -128,6 +132,12 @@ type HTTPPluginOptions struct {
 
 type HeaderOperations struct {
 	Set map[string]string `json:"set,omitempty"`
+}
+
+func (o HeaderOperations) Clone() HeaderOperations {
+	return HeaderOperations{
+		Set: maps.Clone(o.Set),
+	}
 }
 
 type HTTPHeader struct {
